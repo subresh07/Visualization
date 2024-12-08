@@ -1,0 +1,459 @@
+---
+title: "Bank_Churn_modeling"
+author: "Subresh Thakulla"
+date: "2024-09-05"
+output: pdf_document
+---
+
+
+
+Introduction
+The goal of this classification task is to predict whether a bank customer will either stay with the bank or exit the bank (churn). It is important to understand which customers are likely to churn and why in order to take action to retain them. In this notebook, we will perform some exploratory data analysis (EDA) on the dataset,
+
+and train a generalized additive model (GAM) to predict churn. We will also use the GAM to identify the most important features in predicting churn
+
+
+
+#Step 1: Install and Load Necessary Libraries
+```{r}
+
+
+# Load libraries
+library(ggplot2)
+library(DataExplorer)
+library(dplyr)
+library(maps)
+library(tidyr)
+
+
+```
+
+
+#Step 2: Load the Data
+
+```{r}
+
+# Load necessary library
+library(readr)
+
+# Import the CSV file
+data1 <- read_csv("D:/Visualization/bank_E_D_A/bank/code/Churn_Modelling - Copy.csv", show_col_types = FALSE)
+
+# Display the first 10 rows of the dataset
+head(data1, 10)
+
+
+```
+#Step 3: Basic Overview of the Data
+```{r}
+
+# Get the structure of the dataset
+str(data1)
+
+# Summarize the data
+summary(data1)
+```
+
+
+
+
+
+
+
+#We will drop id, CustomerId and Surname from the dataset, as they are simply identifiers and are not useful in predicting churn.
+
+```{r}
+# drop the identifier columns
+data1 <- data1 %>% 
+  select(-c(RowNumber, CustomerId, Surname))
+```
+
+
+```{r}
+glimpse(data1)
+```
+
+
+
+
+
+
+# Check for missing values
+We first check for missing values in the data. There appear to be no missing values in the data.
+
+
+```{r}
+# get the numebr of missing values in each column
+colSums(is.na(data1))
+```
+
+
+```{r}
+plot_missing(data1)
+```
+
+Exploratory Data Analysis (EDA)
+
+Target variable¶
+The target variable is Exited, which indicates whether the customer exited the bank or not. 
+
+Lets check the number of customer of exted the bank 
+```{r}
+# get the number of customers who exited the bank
+churn_data <- data1 %>% 
+  group_by(Exited) %>% 
+  summarise(n = n()) %>% 
+  mutate(pct = n / sum(n))
+
+churn_data
+```
+Exited Shows weather customer exited or stayed.
+n SHows how many customers are in each group.
+pct shows the percentage of customers in each group.
+
+
+Visualization:
+```{r}
+
+
+# Ensure that the data is correctly passed to ggplot and columns exist
+ggplot(churn_data, aes(x = factor(Exited), y = pct, fill = factor(Exited))) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(labels = scales::percent_format()) +  # Format y-axis as percentages
+  labs(x = "Exited (0 = Stayed, 1 = Exited)",
+       y = "Percentage of Customers",
+       title = "Percentage of Customers Who Exited vs. Stayed") +
+  theme_minimal() +
+  theme(legend.position = "none")  # Hide legend since Exited is already on x-axis
+```
+The target variable is imbalanced, with 21.1% of the customers exiting the bank.
+
+
+
+Step 4: Categorical features
+There are 4 categorical features in the dataset. In the following plots, we show the distribution of the target variable for each category in each categorical feature. Some observations:
+
+
+
+
+# Plot for Geography::
+
+```{r}
+# Plot for Geography
+data1 %>%
+  group_by(Geography) %>%
+  summarise(ChurnRate = mean(Exited) * 100) %>%
+  ggplot(aes(x = Geography, y = ChurnRate)) +
+  geom_bar(stat = 'identity', fill = 'steelblue') +
+  labs(x = 'Geography', y = 'Churn rate (%)', title = 'Distribution of Churn Rate by Geography') 
+
+```
+Groups data by the Geography column, calculates the churn rate, and creates a bar plot.
+
+The churn rate is much higher for Germany than Spain and France. (may be customers have many more banking options in Germany or the banking experience in Germany is worse).
+
+ 
+
+
+# Plot for Gender:
+```{r}
+# Plot for Gender
+data1 %>%
+  group_by(Gender) %>%
+  summarise(ChurnRate = mean(Exited) * 100) %>%
+  ggplot(aes(x = Gender, y = ChurnRate)) +
+  geom_bar(stat = 'identity', fill = 'steelblue') +
+  labs(x = 'Gender', y = 'Churn rate (%)', title = 'Distribution of Churn Rate by Gender') 
+```
+
+Groups data by Gender, calculates the churn rate, and creates a bar plot.
+
+Male customers have a lower churn rate than female customers. (needs to be investigated)
+
+#Plot for HasCrCard:
+```{r}
+# Plot for HasCrCard (Has Credit Card)
+data1 %>%
+  group_by(HasCrCard) %>%
+  summarise(ChurnRate = mean(Exited) * 100) %>%
+  ggplot(aes(x = factor(HasCrCard), y = ChurnRate)) +
+  geom_bar(stat = 'identity', fill = 'steelblue') +
+  labs(x = 'Has Credit Card', y = 'Churn rate (%)', title = 'Distribution of Churn Rate by Has Credit Card') 
+```
+Groups data by the HasCrCard column (binary: has or does not have a credit card), calculates churn rate, and generates a bar plot. We use factor() to ensure proper categorical behavior.
+
+Customers with a credit card have a slightly lower churn rate than customers without a credit card. (makes sense)
+
+# Plot for IsActiveMember:
+```{r}
+# Plot for IsActiveMember
+data1 %>%
+  group_by(IsActiveMember) %>%
+  summarise(ChurnRate = mean(Exited) * 100) %>%
+  ggplot(aes(x = factor(IsActiveMember), y = ChurnRate)) +
+  geom_bar(stat = 'identity', fill = 'steelblue') +
+  labs(x = 'Is Active Member', y = 'Churn rate (%)', title = 'Distribution of Churn Rate by Active Membership')
+```
+
+This creates a churn rate plot for whether the customer is an active member, using factor() for categorical variables.
+
+Customers who are active members have a much lower churn rate than customers who are not active members. (makes sense)
+
+
+
+
+
+
+# Step 4: Numerical features
+We now analyze the the numerical features in the dataset. We begin by plotting the distribution of the numerical features. Some observations:
+
+#  Plot for CreditScore:
+```{r}
+# Assuming 'data1' contains both 'CreditScore' and 'Exited' columns
+data1 %>%
+  ggplot(aes(x = CreditScore, fill = factor(Exited))) +  # Use 'fill' to differentiate by churn status
+  geom_histogram(position = 'stack', color = 'white', bins = 15, alpha = 0.7) +  # Overlay histograms with transparency
+  scale_fill_manual(values = c("blue", "red"), labels = c("Not Exited", "Exited")) +  # Define colors for Exited and Not Exited
+  labs(x = 'CreditScore', y = 'Count', title = 'Distribution of CreditScore by Churn Status', fill = 'Churn Status') +
+  theme_minimal()
+
+```
+Customers with lower credit scores are more likely to churn.
+
+
+# Plot for Age
+```{r}
+data1 %>%
+  ggplot(aes(x = Age, fill = factor(Exited))) +
+  geom_histogram(position = 'dodge', color = 'white', bins = 15) +  # Use 'dodge' to place bars side by side
+  scale_fill_manual(values = c("blue", "red"), labels = c("Not Exited", "Exited")) +
+  labs(x = 'Age', y = 'Count', title = 'Distribution of Age by Churn Status', fill = 'Churn Status') 
+
+```
+Churn Rate Increases with Age,Retention in Younger Age Groups,Churn in Middle-Aged Groups
+
+
+# Plot for Tenure
+
+
+```{r}
+data1 %>%
+  ggplot(aes(x = Tenure, fill = factor(Exited))) +  # Use 'fill' to differentiate by churn status
+  geom_histogram(position = 'identity', color = 'white', bins = 15, alpha = 0.7) +  # Overlay histograms with transparency
+  scale_fill_manual(values = c("blue", "red"), labels = c("Not Exited", "Exited")) +  # Define colors for Exited and Not Exited
+  labs(x = 'Tenure', y = 'Count', title = 'Distribution of Tenure by Churn Status', fill = 'Churn Status') 
+ 
+
+```
+Customers who have been with the bank for very short periods (0 years) are more likely to churn.
+
+Customers with longer tenures (10 years) show a high retention rate, suggesting loyalty increases with time.
+
+# Plot for Balance
+```{r}
+data1 %>%
+  ggplot(aes(x = Balance, fill = factor(Exited))) +  # Use 'fill' to differentiate by churn status
+  geom_histogram(position = 'dodge', color = 'white', bins = 15, alpha = 0.7) +  # Overlay histograms with transparency
+  scale_fill_manual(values = c("blue", "red"), labels = c("Not Exited", "Exited")) +  # Define colors for Exited and Not Exited
+  labs(x = 'Balance', y = 'Count', title = 'Distribution of Balance by Churn Status', fill = 'Churn Status') 
+
+
+
+```
+Many customers have zero balance in their bank account. Either these are errors in the data or the customers are only credit card holders.
+
+
+
+# Plot for NumOfProducts
+```{r}
+data1 %>%
+  ggplot(aes(x = NumOfProducts, fill = factor(Exited))) +  # Use 'fill' to differentiate by churn status
+  geom_histogram(position = 'dodge', color = 'white', bins = 15, alpha = 0.7) +  # Overlay histograms with transparency
+  scale_fill_manual(values = c("blue", "red"), labels = c("Not Exited", "Exited")) +  # Define colors for Exited and Not Exited
+  labs(x = 'Number of Products', y = 'Count', title = 'Distribution of Number of Products by Churn Status', fill = 'Churn Status') 
+
+
+```
+Most customers are subscribed to either 1 or 2 products from the bank. Customers associated with 3 and 4 products are rare.
+
+Exited number is high in 3 and 4 products.
+
+
+# Plot for EstimatedSalary
+```{r}
+data1 %>%
+  ggplot(aes(x = EstimatedSalary, fill = factor(Exited))) +  # Use 'fill' to differentiate by churn status
+  geom_histogram(position = 'identity', color = 'white', bins = 15, alpha = 0.5) +  # Overlay histograms with transparency
+  scale_fill_manual(values = c("blue", "red"), labels = c("Not Exited", "Exited")) +  # Define colors for Exited and Not Exited
+  labs(x = 'Estimated Salary', y = 'Count', title = 'Distribution of Estimated Salary by Churn Status', fill = 'Churn Status') 
+
+```
+The churn rate is fairly consistent across all salary levels, suggesting that estimated salary is not a strong predictor of whether a customer will churn or not.
+Both high-salary and low-salary customers seem to churn at roughly the same rate, meaning that other factors, like product engagement or customer satisfaction, might be more influential in driving churn.
+
+
+
+Compare Churn Across Different Subgroups
+ 
+Churn Rate by Gender and Geography
+
+```{r}
+
+
+# Get the map data for Europe
+world_map <- map_data("world")
+
+# Filter only for France, Germany, and Spain
+europe_map <- world_map %>% filter(region %in% c("France", "Germany", "Spain"))
+
+# Example churn rate data (this should come from your own churn data analysis)
+churn_data <- data.frame(
+  Geography = c("France", "Germany", "Spain"),
+  FemaleChurnRate = c(20, 30, 18),
+  MaleChurnRate = c(10, 25, 10)
+)
+
+# Reshape churn data for plotting using pivot_longer (from tidyr)
+churn_data_long <- churn_data %>%
+  pivot_longer(cols = c(FemaleChurnRate, MaleChurnRate),
+               names_to = "Gender",
+               values_to = "ChurnRate") %>%
+  mutate(Gender = ifelse(Gender == "FemaleChurnRate", "Female", "Male"))
+
+# Merge churn data with map data
+europe_map <- europe_map %>%
+  left_join(churn_data_long, by = c("region" = "Geography"))
+
+# Calculate the centroid (center) of each country for labeling
+country_centroids <- europe_map %>%
+  group_by(region) %>%
+  summarise(long = mean(long), lat = mean(lat))
+
+# Plot the map with churn rates and facets by gender
+ggplot(europe_map, aes(x = long, y = lat, group = group, fill = ChurnRate)) +
+  geom_polygon(color = "black") + 
+  coord_fixed(1.3) +  # Fix aspect ratio
+  facet_wrap(~ Gender) +  # Facet by gender
+  scale_fill_gradient(low = "lightblue", high = "red") +
+  labs(title = "Churn Rate by Gender and Geography", fill = "Churn Rate (%)")  +
+  # Add country labels using geom_text, without group aesthetic
+  geom_text(data = country_centroids, aes(x = long, y = lat, label = region), 
+            inherit.aes = FALSE, color = "black", size = 5)
+
+
+
+```
+Germany has the highest churn rate overall for both males and females, with females churning at a slightly higher rate than males.
+France has a higher churn rate among females compared to males, but both genders experience moderate churn rates.
+Spain has the lowest churn rates, especially among males, where churn is as low as 10%.
+
+This map visualization effectively highlights the differences in churn rates across geographical regions and gender, helping to identify potential areas where the bank may need to focus on retention strategies, particularly in Germany
+
+
+
+
+# Relationship between Balance and Credit Score by Churn:
+Investigate whether customers with high balances and good credit scores are more likely to churn.
+
+
+```{r}
+# Scatter plot to explore the relationship between Balance and Credit Score by churn status
+ggplot(data1, aes(x = Balance, y = CreditScore, color = factor(Exited))) +
+  geom_point(alpha = 0.8) +
+  labs(x = 'Balance', y = 'Credit Score', color = 'Churn Status') 
+
+```
+This plot suggest that having low credit score i.e under 400 are more likely to churn between balance 75000 to 175000. 
+
+
+
+Time-Series or Sequential Analysis
+Churn Rate by Tenure
+```{r}
+# Churn rate by Tenure
+data1 %>%
+  group_by(Tenure) %>%
+  summarise(ChurnRate = mean(Exited) * 100) %>%
+  ggplot(aes(x = Tenure, y = ChurnRate)) +
+  geom_line(color = 'blue') +
+  labs(x = 'Tenure (Years)', y = 'Churn Rate (%)', title = 'Churn Rate by Customer Tenure') 
+
+```
+New customers (with 0 years of tenure) are at the highest risk of churn, indicating the need for stronger retention efforts early in the customer lifecycle.
+Customers who have stayed for 2-6 years tend to be more stable, with a lower and consistent churn rate.
+After 7 years, churn risk increases again, suggesting that longer-term customers may require renewed engagement or loyalty programs to prevent them from leaving.
+
+
+
+# Advanced Visualizations to Answer Research Questions
+ Multivariate Analysis:
+```{r}
+# Credit Score, Balance, and Churn Status by Gender
+ggplot(data1, aes(x = CreditScore, y = Balance, color = factor(Exited))) +
+  geom_point(alpha = 0.6) +
+  facet_wrap(~ Gender) +
+  labs(x = 'Credit Score', y = 'Balance', color = 'Churn Status') 
+
+```
+
+This plot does not show clear separation between Credit Score, Balance, and Gender as distinguishing factors for customer churn. It may not be very helpful for identifying strong patterns or making strategic decisions based on these variables alone. 
+
+
+```{r}
+# Number of Products, Credit Score, and Churn Status
+ggplot(data1, aes(x = NumOfProducts, y = CreditScore, color = factor(Exited))) +
+  geom_jitter(width = 0.2, height = 0) +  # Slight jitter for better visibility
+  labs(x = 'Number of Products', y = 'Credit Score', color = 'Churn Status') 
+
+```
+This plot reveals an interesting insight: customers with 3 or 4 products are more likely to churn compared to those with 1 or 2 products. This information could help the bank identify customers at higher churn risk based on product engagement, even though credit score does not seem to play a major role in churn behavior.
+
+
+
+```{r}
+# Churn by Geography, Tenure, and Gender
+ggplot(data1, aes(x = Geography, y = Tenure, fill = factor(Exited))) +
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~ Gender) +
+  labs(x = 'Geography', y = 'Tenure', fill = 'Churn Status') 
+
+```
+
+France: Females are slightly more prone to churn than males despite having higher tenure, suggesting that female customers might need more targeted engagement.
+
+Germany: Both males and females are at higher risk of churn regardless of their tenure, indicating that gender is not a key differentiator here.
+
+Spain: Both genders exhibit low churn rates, with tenure not playing a major role in customer churn for either gender.
+
+
+ Violin or Density Plots:
+```{r}
+# Violin plot to compare the distribution of Age by churn status
+ggplot(data1, aes(x = factor(Exited), y = Age, fill = factor(Exited))) +
+  geom_violin() +
+  labs(x = 'Churn Status', y = 'Age', title = 'Age Distribution by Churn Status') 
+
+```
+Older customers (particularly those aged 40 to 50) are more likely to churn, whereas younger customers (around 30 to 40) are less likely to churn.
+This suggests that retention strategies could focus on providing more personalized services or engagement for older customers, who seem to be at a higher risk of exiting.
+
+
+# Correlation and Relationships Between Variables
+
+A correlation matrix or heatmap showing how different variables (e.g., Age, Credit Score, Balance, Tenure) are correlated
+
+```{r}
+# Calculate correlation matrix and visualize it
+library(corrplot)
+num_data <- select(data1, CreditScore, Age, Balance, Tenure, EstimatedSalary)
+cor_matrix <- cor(num_data)
+corrplot(cor_matrix, method = 'color', addCoef.col = 'black', tl.cex = 0.8)
+
+```
+All correlations are very close to zero, suggesting that the variables are largely independent of one another.
+
+There are no significant relationships between any of the variables based on this correlation matrix.
+
+Balance, Tenure, and EstimatedSalary have very weak correlations with each other and the other variables.
+
+ 

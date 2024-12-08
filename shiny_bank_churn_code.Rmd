@@ -1,0 +1,98 @@
+---
+title: "Bank Churn Shiny App"
+runtime: shiny
+output: html_document
+---
+
+```{r}
+# Load necessary libraries
+library(shiny)
+library(ggplot2)
+library(dplyr)
+
+# Load your dataset
+data1 <- read.csv("Churn_Modelling.csv")  # Replace with your dataset path
+
+
+# Convert 'Exited' to a factor with labels
+data1$Exited <- factor(data1$Exited, levels = c(0, 1), labels = c("Not Churned", "Churned"))
+
+```
+
+
+
+```{r}
+# Define the UI
+ui <- fluidPage(
+  
+  # App title
+  titlePanel("Bank Churn Analysis"),
+  
+  # Sidebar layout for inputs
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("variable", "Select a Variable for Analysis:",
+                  choices = c("Age", "CreditScore", "Balance", "NumOfProducts", "Tenure")),
+      
+      selectInput("graph_type", "Select Graph Type:",
+                  choices = c("Bar Plot", "Scatter Plot", "Violin Plot")),
+      
+      checkboxInput("show_churn", "Color by Churn Status", value = TRUE),
+      
+      # Geography filter for interactivity
+      selectInput("geography", "Select Geography:",
+                  choices = unique(data1$Geography), selected = "France")
+    ),
+    
+    # Output panel for plot
+    mainPanel(
+      plotOutput("churnPlot")
+    )
+  )
+)
+```
+
+
+```{r}
+# Define the server logic
+server <- function(input, output) {
+  
+  # Generate plots based on user input
+  output$churnPlot <- renderPlot({
+    
+    # Filter data by geography
+    filtered_data <- data1 %>% filter(Geography == input$geography)
+    
+    # Set the base plot
+    if (input$graph_type == "Bar Plot") {
+      p <- ggplot(filtered_data, aes_string(x = input$variable))
+      p <- p + geom_bar(fill = "steelblue")
+      
+    } else if (input$graph_type == "Scatter Plot") {
+      p <- ggplot(filtered_data, aes_string(x = input$variable, y = "Balance"))
+      p <- p + geom_point(aes(color = Exited), alpha = 0.6)  # Color by Exited status
+      
+    } else if (input$graph_type == "Violin Plot") {
+      p <- ggplot(filtered_data, aes_string(x = "Exited", y = input$variable))
+      p <- p + geom_violin(aes(fill = Exited), alpha = 0.6)  # Fill by Exited status
+    }
+    
+    # Conditionally add color by churn status for Bar and Scatter plots
+    if (input$show_churn && input$graph_type != "Violin Plot") {
+      p <- p + aes(color = Exited)  # Use Exited for coloring
+    }
+    
+    # Add labels and theme
+    p <- p + labs(x = input$variable, color = "Churn Status") +
+      theme_minimal()
+    
+    print(p)
+  })
+}
+
+# Run the app
+shinyApp(ui = ui, server = server)
+
+
+```
+
